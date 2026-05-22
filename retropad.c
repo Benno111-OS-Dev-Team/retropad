@@ -14,6 +14,11 @@
 #define MAX_PATH_BUFFER 1024
 #define DEFAULT_WIDTH  640
 #define DEFAULT_HEIGHT 480
+#define SETTINGS_KEY   L"Software\\retropad"
+#define FONT_VALUE     L"Font"
+#define DEFAULT_FONT_POINT_SIZE 10
+#define MIN_FONT_POINT_SIZE 6
+#define MAX_FONT_POINT_SIZE 72
 
 typedef struct AppState {
     HWND hwndMain;
@@ -48,6 +53,10 @@ static void DoFileNew(HWND hwnd);
 static void SetWordWrap(HWND hwnd, BOOL enabled);
 static void ToggleStatusBar(HWND hwnd, BOOL visible);
 static void UpdateStatusBar(HWND hwnd);
+static void LoadSettings(void);
+static void SaveFontSetting(void);
+static void ResetFontSize(HWND hwnd);
+static void ChangeFontSize(HWND hwnd, int delta);
 static void ShowFindDialog(HWND hwnd);
 static void ShowReplaceDialog(HWND hwnd);
 static BOOL DoFindNext(BOOL reverse);
@@ -228,6 +237,114 @@ static void UpdateTitle(HWND hwnd) {
 
 static void ApplyFontToEdit(HWND hwndEdit, HFONT font) {
     SendMessageW(hwndEdit, WM_SETFONT, (WPARAM)font, TRUE);
+}
+
+static void GetDefaultLogFont(LOGFONTW *lf) {
+    ZeroMemory(lf, sizeof(*lf));
+    SystemParametersInfoW(SPI_GETICONTITLELOGFONT, sizeof(*lf), lf, 0);
+    HDC hdc = GetDC(NULL);
+    if (hdc) {
+        lf->lfHeight = -MulDiv(DEFAULT_FONT_POINT_SIZE, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        ReleaseDC(NULL, hdc);
+    }
+}
+
+static int GetFontPointSize(const LOGFONTW *lf) {
+    HDC hdc = GetDC(NULL);
+    if (!hdc) return DEFAULT_FONT_POINT_SIZE;
+
+    int height = lf->lfHeight;
+    if (height < 0) {
+        height = -height;
+    }
+    int points = MulDiv(height, 72, GetDeviceCaps(hdc, LOGPIXELSY));
+    ReleaseDC(NULL, hdc);
+
+    if (points < MIN_FONT_POINT_SIZE) return MIN_FONT_POINT_SIZE;
+    if (points > MAX_FONT_POINT_SIZE) return MAX_FONT_POINT_SIZE;
+    return points;
+}
+
+static void SetFontPointSize(LOGFONTW *lf, int pointSize) {
+    if (pointSize < MIN_FONT_POINT_SIZE) pointSize = MIN_FONT_POINT_SIZE;
+    if (pointSize > MAX_FONT_POINT_SIZE) pointSize = MAX_FONT_POINT_SIZE;
+
+    HDC hdc = GetDC(NULL);
+    if (hdc) {
+        lf->lfHeight = -MulDiv(pointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        ReleaseDC(NULL, hdc);
+    }
+}
+
+static void SetAppFontFromLogFont(HWND hwnd, const LOGFONTW *lf, BOOL save) {
+    HFONT newFont = CreateFontIndirectW(lf);
+    if (!newFont) return;
+
+    if (g_app.hFont) DeleteObject(g_app.hFont);
+    g_app.hFont = newFont;
+    if (g_app.hwndEdit) {
+        ApplyFontToEdit(g_app.hwndEdit, g_app.hFont);
+    }
+    if (save) {
+        SaveFontSetting();
+    }
+    if (hwnd) {
+        UpdateLayout(hwnd);
+    }
+}
+
+static void LoadSettings(void) {
+    HKEY key;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, SETTINGS_KEY, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+        return;
+    }
+
+    LOGFONTW lf;
+    DWORD type = REG_BINARY;
+    DWORD size = sizeof(lf);
+    if (RegQueryValueExW(key, FONT_VALUE, NULL, &type, (LPBYTE)&lf, &size) == ERROR_SUCCESS &&
+        type == REG_BINARY && size == sizeof(lf)) {
+        SetAppFontFromLogFont(NULL, &lf, FALSE);
+    }
+    RegCloseKey(key);
+}
+
+static void SaveFontSetting(void) {
+    if (!g_app.hFont) return;
+
+    LOGFONTW lf;
+    if (!GetObjectW(g_app.hFont, sizeof(lf), &lf)) return;
+
+    HKEY key;
+    DWORD disposition;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, SETTINGS_KEY, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, &disposition) == ERROR_SUCCESS) {
+        RegSetValueExW(key, FONT_VALUE, 0, REG_BINARY, (const BYTE *)&lf, sizeof(lf));
+        RegCloseKey(key);
+    }
+}
+
+static void ChangeFontSize(HWND hwnd, int delta) {
+    LOGFONTW lf;
+    if (g_app.hFont) {
+        GetObjectW(g_app.hFont, sizeof(lf), &lf);
+    } else {
+        GetDefaultLogFont(&lf);
+    }
+
+    SetFontPointSize(&lf, GetFontPointSize(&lf) + delta);
+    SetAppFontFromLogFont(hwnd, &lf, TRUE);
+}
+
+static void ResetFontSize(HWND hwnd) {
+    LOGFONTW lf;
+    if (g_app.hFont) {
+        GetObjectW(g_app.hFont, sizeof(lf), &lf);
+    } else {
+        GetDefaultLogFont(&lf);
+    }
+
+    SetFontPointSize(&lf, DEFAULT_FONT_POINT_SIZE);
+    SetAppFontFromLogFont(hwnd, &lf, TRUE);
 }
 
 static void CreateEditControl(HWND hwnd) {
@@ -513,13 +630,7 @@ static void DoSelectFont(HWND hwnd) {
     cf.Flags = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT;
 
     if (ChooseFontW(&cf)) {
-        HFONT newFont = CreateFontIndirectW(&lf);
-        if (newFont) {
-            if (g_app.hFont) DeleteObject(g_app.hFont);
-            g_app.hFont = newFont;
-            ApplyFontToEdit(g_app.hwndEdit, g_app.hFont);
-            UpdateLayout(hwnd);
-        }
+        SetAppFontFromLogFont(hwnd, &lf, TRUE);
     }
 }
 
@@ -670,6 +781,15 @@ static void HandleCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
     case IDM_FORMAT_FONT:
         DoSelectFont(hwnd);
         break;
+    case IDM_FORMAT_FONT_INC:
+        ChangeFontSize(hwnd, 1);
+        break;
+    case IDM_FORMAT_FONT_DEC:
+        ChangeFontSize(hwnd, -1);
+        break;
+    case IDM_FORMAT_FONT_RESET:
+        ResetFontSize(hwnd);
+        break;
 
     case IDM_VIEW_STATUS_BAR:
         ToggleStatusBar(hwnd, !g_app.statusVisible);
@@ -754,6 +874,10 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         return 0;
     case WM_DESTROY:
+        if (g_app.hFont) {
+            DeleteObject(g_app.hFont);
+            g_app.hFont = NULL;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -771,6 +895,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     g_app.statusBeforeWrap = TRUE;
     g_app.encoding = ENC_UTF8;
     g_app.findFlags = FR_DOWN;
+    LoadSettings();
 
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(wc);

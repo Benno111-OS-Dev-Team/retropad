@@ -38,6 +38,10 @@ BEGIN
     BEGIN
         MENUITEM "&Word Wrap",              IDM_FORMAT_WORD_WRAP
         MENUITEM "&Font...",                IDM_FORMAT_FONT
+        MENUITEM SEPARATOR
+        MENUITEM "Increase Font Size\tCtrl++", IDM_FORMAT_FONT_INC
+        MENUITEM "Decrease Font Size\tCtrl+-", IDM_FORMAT_FONT_DEC
+        MENUITEM "Reset Font Size\tCtrl+0", IDM_FORMAT_FONT_RESET
     END
     POPUP "&View"
     BEGIN
@@ -67,6 +71,12 @@ BEGIN
     "^G",       IDM_EDIT_GOTO,      VIRTKEY, CONTROL
     "^A",       IDM_EDIT_SELECT_ALL,VIRTKEY, CONTROL
     VK_F5,      IDM_EDIT_TIME_DATE, VIRTKEY
+    VK_OEM_PLUS,  IDM_FORMAT_FONT_INC,   VIRTKEY, CONTROL
+    VK_OEM_PLUS,  IDM_FORMAT_FONT_INC,   VIRTKEY, CONTROL, SHIFT
+    VK_ADD,       IDM_FORMAT_FONT_INC,   VIRTKEY, CONTROL
+    VK_OEM_MINUS, IDM_FORMAT_FONT_DEC,   VIRTKEY, CONTROL
+    VK_SUBTRACT,  IDM_FORMAT_FONT_DEC,   VIRTKEY, CONTROL
+    "0",          IDM_FORMAT_FONT_RESET, VIRTKEY, CONTROL
 END
 
 IDD_GOTO DIALOGEX 0, 0, 200, 80
@@ -85,8 +95,8 @@ STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
 CAPTION "About retropad"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT "retropad\nA Petzold-style Notepad clone.\nWin32 / C implementation.", -1, 12, 12, 176, 32
-    LTEXT "© 2025", -1, 12, 48, 60, 10
+    LTEXT "retropad", -1, 12, 12, 176, 32
+    LTEXT "© benno111 2026\n© PlummersSoftwareLLC 2025", -1, 12, 48, 60, 10
     DEFPUSHBUTTON "OK", IDOK, 74, 64, 52, 14
 END
 
@@ -107,7 +117,7 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "retropad"
+            VALUE "CompanyName", "os dev team"
             VALUE "FileDescription", "retropad text editor"
             VALUE "FileVersion", "1.0.0.0"
             VALUE "InternalName", "retropad.exe"
